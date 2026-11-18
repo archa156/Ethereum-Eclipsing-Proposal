@@ -1,4 +1,3 @@
-
 package attacker
 
 import (
@@ -8,15 +7,15 @@ import (
 )
 
 type Config struct {
-	AttackerSubnets  int
-	InsertionRate    int
-	HonestChurnRate  int
-	EntryDeathRate   float64
-	Rounds           int
-	Scheme           bench.Scheme
-	SampleP          float64
-	Secret           uint64
-	Seed             int64
+	AttackerSubnets int
+	InsertionRate   int
+	HonestChurnRate int
+	EntryDeathRate  float64
+	Rounds          int
+	Scheme          bench.Scheme
+	SampleP         float64
+	Secret          uint64
+	Seed            int64
 }
 
 type RoundResult struct {

@@ -6,12 +6,10 @@ func newTestBucket(scheme Scheme, sampleP float64, secret uint64) *Bucket {
 	return NewBucket(scheme, sampleP, secret, 20240711)
 }
 
-// --- capacity and dedup -----------------------------------------------------
-
 func TestReplacementListNeverExceedsMaxReplacements(t *testing.T) {
 	b := newTestBucket(SchemeBaseline, 1.0, 0)
 	for i := 0; i < 50; i++ {
-		b.AddReplacement(&Node{ID: uint64(i), Subnet: subnetFor(i, 25)}) // 25 distinct subnets, well above IP limit needs
+		b.AddReplacement(&Node{ID: uint64(i), Subnet: subnetFor(i, 25)})
 	}
 	if got := len(b.LiveReplacements()); got > MaxReplacements {
 		t.Fatalf("replacement list exceeded MaxReplacements: got %d", got)
@@ -22,25 +20,18 @@ func TestDuplicateNodeIsNotDoubleCounted(t *testing.T) {
 	b := newTestBucket(SchemeBaseline, 1.0, 0)
 	n := &Node{ID: 1, Subnet: "10.0.0"}
 	b.AddReplacement(n)
-	b.AddReplacement(n) // same ID again
+	b.AddReplacement(n)
 	if got := len(b.LiveReplacements()); got != 1 {
 		t.Fatalf("expected 1 entry after duplicate insert, got %d", got)
 	}
 }
 
-// --- subnet / IP limit (the only defense geth has today) -------------------
-
 func TestBucketIPLimitAppliesUnderEveryScheme(t *testing.T) {
-	// Checks CONCURRENT occupancy from one subnet, not cumulative accept
-	// count -- under SchemeDeterministic a subnet always hashes to the same
-	// slot, so successive distinct-ID insertions from that subnet displace
-	// each other rather than accumulating; each call can still return true
-	// while never holding more than 1 slot at once. Live occupancy is the
-	// metric that actually matters for "is the subnet limit respected".
+
 	for _, scheme := range []Scheme{SchemeBaseline, SchemeFractionSampling, SchemeDeterministic} {
 		b := newTestBucket(scheme, 1.0, 42)
 		for i := 0; i < 10; i++ {
-			n := &Node{ID: uint64(i), Subnet: "10.0.0"} // ALL same /24 subnet
+			n := &Node{ID: uint64(i), Subnet: "10.0.0"}
 			b.AddReplacement(n)
 		}
 		fromSubnet := 0
@@ -56,19 +47,16 @@ func TestBucketIPLimitAppliesUnderEveryScheme(t *testing.T) {
 	}
 }
 
-// --- Scheme 1: baseline, today's geth ---------------------------------------
-
 func TestBaselineFrontInsertBackEvict(t *testing.T) {
 	b := newTestBucket(SchemeBaseline, 1.0, 0)
-	// fill the bench with 10 distinct-subnet honest nodes
+
 	var honest []*Node
 	for i := 0; i < MaxReplacements; i++ {
 		n := &Node{ID: uint64(i), Subnet: subnetFor(i, MaxReplacements)}
 		honest = append(honest, n)
 		b.AddReplacement(n)
 	}
-	// insert one more node from a fresh subnet -- should evict the OLDEST
-	// (which pushNode's front-insert/back-evict makes the FIRST one we added)
+
 	newcomer := &Node{ID: 999, Subnet: subnetFor(999, MaxReplacements+1)}
 	b.AddReplacement(newcomer)
 
@@ -87,14 +75,12 @@ func TestBaselineFrontInsertBackEvict(t *testing.T) {
 }
 
 func TestBaselineGrindEventuallyOwnsWholeBench(t *testing.T) {
-	// This test reproduces the core vulnerability: an attacker with enough
-	// distinct subnets (5, given BucketIPLimit=2) can, by repeated
-	// insertion alone, come to occupy the entire bench under SchemeBaseline.
+
 	b := newTestBucket(SchemeBaseline, 1.0, 0)
 	for i := 0; i < MaxReplacements; i++ {
 		b.AddReplacement(&Node{ID: uint64(i), Subnet: subnetFor(i, MaxReplacements)})
 	}
-	attackerSubnets := 5 // 5 subnets * BucketIPLimit(2) = 10 = MaxReplacements
+	attackerSubnets := 5
 	for round := 0; round < 200; round++ {
 		for s := 0; s < attackerSubnets; s++ {
 			for slot := 0; slot < BucketIPLimit; slot++ {
@@ -108,8 +94,6 @@ func TestBaselineGrindEventuallyOwnsWholeBench(t *testing.T) {
 		t.Fatalf("expected baseline scheme to be fully grindable (share ~1.0), got %.3f", share)
 	}
 }
-
-// --- Scheme 2: fraction sampling ---------------------------------------------
 
 func TestFractionSamplingSlowsButDoesNotStopTheGrind(t *testing.T) {
 	baseline := newTestBucket(SchemeBaseline, 1.0, 0)
@@ -129,9 +113,7 @@ func TestFractionSamplingSlowsButDoesNotStopTheGrind(t *testing.T) {
 		insertRound(baseline, r)
 		insertRound(sampled, r)
 	}
-	// both should still converge toward full attacker occupancy given enough
-	// rounds -- sampling only raises the number of insertions needed, it does
-	// not cap the attacker's achievable share.
+
 	if baseline.AttackerBenchShare() < 0.99 {
 		t.Fatalf("baseline sanity check failed: expected ~1.0, got %.3f", baseline.AttackerBenchShare())
 	}
@@ -153,10 +135,7 @@ func TestFractionSamplingNeedsMoreInsertionsThanBaselineForSameShare(t *testing.
 	}
 	roundsToReachShare := func(scheme Scheme, sampleP float64, target float64) int {
 		b := newTestBucket(scheme, sampleP, 0)
-		// Seed an ESTABLISHED HONEST bench first -- the realistic scenario
-		// is an attacker grinding against an already-full, already-honest
-		// replacement list, not an empty one. Without this, even a single
-		// accepted attacker insertion trivially reads as 100% share.
+
 		for i := 0; i < MaxReplacements; i++ {
 			b.AddReplacement(&Node{ID: uint64(900000 + i), Subnet: subnetFor(i, MaxReplacements)})
 		}
@@ -180,8 +159,6 @@ func TestFractionSamplingNeedsMoreInsertionsThanBaselineForSameShare(t *testing.
 	}
 }
 
-// --- Scheme 3: deterministic placement ---------------------------------------
-
 func TestDeterministicGrindingIsANoOp(t *testing.T) {
 	b := newTestBucket(SchemeDeterministic, 1.0, 20240711)
 	n := &Node{ID: 1, Subnet: "10.0.0", IsAttacker: true}
@@ -191,7 +168,7 @@ func TestDeterministicGrindingIsANoOp(t *testing.T) {
 	}
 	slotAfterFirst := findSlot(b, n.ID)
 	for i := 0; i < 1000; i++ {
-		b.AddReplacement(n) // insert the SAME node 1000 more times
+		b.AddReplacement(n)
 	}
 	if got := len(b.LiveReplacements()); got != 1 {
 		t.Fatalf("grinding the same node 1000 times should not grow the bench, got %d entries", got)
@@ -202,22 +179,14 @@ func TestDeterministicGrindingIsANoOp(t *testing.T) {
 }
 
 func TestDeterministicAttackerCappedByHashSlotShare(t *testing.T) {
-	// With deterministic placement, an attacker with K distinct subnets can
-	// occupy AT MOST the number of DISTINCT hash slots those K subnets map
-	// to under this bucket's secret -- this can be LESS than K if two
-	// attacker subnets happen to collide into the same slot, so the correct
-	// invariant to test is against the actual distinct-slot count for this
-	// secret, not a naive K/MaxReplacements ratio (which wrongly assumes
-	// honest seeding perfectly fills all 10 slots -- honest subnets can
-	// also collide with each other, leaving some slots empty even before
-	// any attacker activity).
+
 	const secret = 20240711
 	b := newTestBucket(SchemeDeterministic, 1.0, secret)
 	for i := 0; i < MaxReplacements; i++ {
 		b.AddReplacement(&Node{ID: uint64(900000 + i), Subnet: subnetFor(i, MaxReplacements)})
 	}
 	attackerSubnets := 5
-	for round := 0; round < 500; round++ { // grind hard
+	for round := 0; round < 500; round++ {
 		for s := 0; s < attackerSubnets; s++ {
 			id := uint64(1000 + round*attackerSubnets + s)
 			b.AddReplacement(&Node{ID: id, Subnet: subnetFor(s, attackerSubnets), IsAttacker: true})
@@ -241,10 +210,7 @@ func TestDeterministicAttackerCappedByHashSlotShare(t *testing.T) {
 }
 
 func TestDeterministicNeeds10SubnetsForFullBench(t *testing.T) {
-	// 5 subnets (the baseline-breaking count) should NOT be enough to own
-	// the whole bench under deterministic placement; 10 distinct subnets
-	// (one per slot, assuming no collision under this secret) should get
-	// much closer to full occupancy.
+
 	run := func(subnets int) float64 {
 		b := newTestBucket(SchemeDeterministic, 1.0, 20240711)
 		for i := 0; i < MaxReplacements; i++ {
@@ -269,22 +235,15 @@ func TestDeterministicNeeds10SubnetsForFullBench(t *testing.T) {
 	}
 }
 
-// --- promotion: uniformly random, matching real geth, NOT newest-first -----
-
 func TestPromotionIsRandomNotNewestFirst(t *testing.T) {
-	// Seed a bench where the FRONT (newest, slot 0) is honest and the
-	// remaining 9 slots are attacker-controlled. If promotion were
-	// newest-first, the honest node at slot 0 would ALWAYS be promoted.
-	// Real geth promotion is tab.rand.Intn(len(replacements)) -- uniformly
-	// random -- so across many trials the honest node should be promoted
-	// roughly 1/10 of the time, not 100%.
+
 	honestPromotions := 0
 	trials := 2000
 	for trial := 0; trial < trials; trial++ {
-		b := NewBucket(SchemeBaseline, 1.0, 0, int64(trial)) // vary seed per trial
-		b.AddEntry(&Node{ID: 0, Subnet: "0.0.0"})             // one live entry to kill
+		b := NewBucket(SchemeBaseline, 1.0, 0, int64(trial))
+		b.AddEntry(&Node{ID: 0, Subnet: "0.0.0"})
 		honest := &Node{ID: 1, Subnet: "1.0.0"}
-		b.AddReplacement(honest) // inserted first -> ends at front (slot 0) after no evictions
+		b.AddReplacement(honest)
 		for i := 0; i < 9; i++ {
 			b.AddReplacement(&Node{ID: uint64(100 + i), Subnet: subnetFor(i, 9), IsAttacker: true})
 		}
@@ -294,18 +253,13 @@ func TestPromotionIsRandomNotNewestFirst(t *testing.T) {
 		}
 	}
 	rate := float64(honestPromotions) / float64(trials)
-	// Expect close to 1/10 = 0.10. Allow a generous band since this is
-	// randomized; a newest-first bug would show rate close to 1.0.
+
 	if rate > 0.25 {
 		t.Fatalf("promotion rate for the 'newest' honest node was %.3f, expected close to 0.10 "+
 			"(promotion must be uniformly random, not newest-first)", rate)
 	}
 }
 
-// --- helpers -----------------------------------------------------------------
-
-// subnetFor deterministically maps an index into one of n distinct subnet
-// labels, used to give attacker/honest nodes controlled subnet diversity.
 func subnetFor(i, n int) string {
 	label := i % n
 	return "subnet-" + itoa(label)

@@ -1,16 +1,3 @@
-// grind_nodekey.go -- brute-forces a secp256k1 private key whose resulting
-// node ID lands in a specific Kademlia bucket relative to a target node ID.
-//
-// Usage:
-//
-//	go run grind_nodekey.go -target <victim-node-id-hex-64chars> -bucket 11 -out atkX-nodekey.txt
-//
-// Bucket formula matches go-ethereum's p2p/discover/table.go:
-//
-//	nBuckets = 16, hashBits = 256, bucketMinDistance = hashBits - nBuckets = 240
-//	bucket = logdist(targetID, candidateID) - bucketMinDistance
-//
-// where logdist is the bit-length of the XOR of the two 256-bit IDs.
 package main
 
 import (

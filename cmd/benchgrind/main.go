@@ -1,11 +1,3 @@
-// Command benchgrind runs the project's four experiments against the
-// bench-grinding simulator and writes their results as CSV files, ready
-// for plotting. All randomness is seeded (SEED = 20240711) so every run
-// reproduces identical numbers.
-//
-// Usage:
-//
-//	go run ./cmd/benchgrind [-out DIR]
 package main
 
 import (

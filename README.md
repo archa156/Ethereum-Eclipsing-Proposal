@@ -157,7 +157,7 @@ Experiment 3) are not exposed as CLI flags — they're set directly in
 `cmd/benchgrind/main.go` where each experiment is called, e.g.:
 
 ```go
-// cmd/benchgrind/main.go, line 33
+// cmd/benchgrind/main.go, line 25
 e1 := experiment.Experiment1ReproduceGrind(5, 20, 200, seed)
 //                                          ^  ^   ^    ^
 //                               attacker subnets=5, insertion rate=20,
