@@ -44,6 +44,53 @@ place of `devp2p discv5 ping`) is what actually makes the attack hold.
 | [`cmd/benchgrind/`](cmd/benchgrind/) | CLI: runs all four experiments, writes results to `results/` |
 | [`aws-mainnet-experiment/`](aws-mainnet-experiment/) | The real attack: node-key grinding + live-share measurement against a real geth node on mainnet |
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph P1["Phase 1 — simulator (bench/, attacker/, experiment/, cmd/benchgrind/)"]
+        direction TB
+        CLI["cmd/benchgrind/main.go\nCLI entrypoint, 4 experiments, seed=20240711"]
+        EXP["experiment/experiment.go\nExperiment1..4 — wires bucket + attacker\ntogether, records share over time"]
+        BUCKET["bench/bucket.go\nThe bucket: live entries + replacement list\n3 admission schemes (Baseline / Fraction / Deterministic)"]
+        ATK["attacker/attacker.go\nBench-grinding attacker model\n+ honest background churn"]
+        CSV["results/*.csv"]
+
+        CLI --> EXP
+        EXP --> BUCKET
+        EXP --> ATK
+        ATK -->|"repeated Offer() calls"| BUCKET
+        EXP --> CSV
+    end
+
+    subgraph P2["Phase 2 — real attack on live mainnet (aws-mainnet-experiment/)"]
+        direction TB
+        GRIND["grind_nodekey.go\nBrute-forces node keys whose ID\nlands in a chosen bucket"]
+        KEYS["15 ground node keys\n(all targeting bucket 0)"]
+        LISTEN["devp2p discv5 listen\n(real go-ethereum CLI, one long-lived\nprocess per identity on attacker EC2 VMs)"]
+        VICTIM["Real go-ethereum node\nsynced to live Ethereum mainnet\n(victim EC2 instance)"]
+        LOG["victim geth log\n(--verbosity 4)"]
+        SHARE["live_entries_share.py\nParses log, computes time-weighted\nattacker share of live bucket entries"]
+        RESULT["Result: ~90% attacker share\nof bucket 0's live entries"]
+
+        GRIND --> KEYS
+        KEYS --> LISTEN
+        LISTEN -->|"UDP discv5 handshakes"| VICTIM
+        VICTIM --> LOG
+        LOG --> SHARE
+        SHARE --> RESULT
+    end
+
+    P1 -.->|"validates the attack model\nbefore trying it for real"| P2
+```
+
+Phase 1 is entirely self-contained Go, no network calls — `cmd/benchgrind`
+wires `experiment/` to `bench/` and `attacker/` and writes CSVs. Phase 2 is
+real infrastructure: `grind_nodekey.go` is the only custom attacker code,
+everything else in the attack path (`devp2p discv5 listen`, the victim
+node) is real go-ethereum running on AWS, and `live_entries_share.py` is
+the only custom code on the measurement side, reading the victim's own log.
+
 ## Verified against the real geth source
 
 Rather than reimplement `table.go` from the project brief's description, the
