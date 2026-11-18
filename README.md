@@ -15,16 +15,24 @@ from the real go-ethereum source, and (2) evaluates three admission schemes
 on the same cost curve: today's behaviour, a naive rate-limiting fix, and a
 deterministic (addrman-style) placement scheme.
 
-## Status: the codebase moved from Python to Go
+## Two phases of this project
 
-Weeks 1–3 of this project built a Python prototype (`archive/python-simulator/`)
-of the Kademlia/Discv5 routing table and iterative discovery, to establish and
-test the protocol foundation. **The project has since moved entirely to Go**,
-so that the attack and defense logic can be verified directly against
-go-ethereum's real implementation (`p2p/discover/table.go`) rather than a
-from-memory reimplementation, and so the same code can eventually be
-exercised against a real geth node. The Python prototype is kept for
-provenance, not deleted — see [`archive/python-simulator/`](archive/python-simulator/).
+**Phase 1 — simulator.** Reproduce the bench-grinding attack and compare
+three admission schemes against logic mirrored directly from go-ethereum's
+real source (`p2p/discover/table.go`), with seeded, reproducible numeric
+results. This is `bench/`, `attacker/`, `experiment/`, `cmd/benchgrind/`.
+
+**Phase 2 — real attack on live mainnet.** Validate the attack for real: an
+AWS-hosted go-ethereum victim node synced to live Ethereum mainnet, attacked
+by ground node identities targeting a single near-empty Kademlia bucket.
+This is [`aws-mainnet-experiment/`](aws-mainnet-experiment/), and it's where
+the project's headline result lives — **~90% attacker share of a single
+bucket's live routing-table entries**, sustained over a 50-minute window
+against a real synced node. See that folder's README for the full writeup,
+including a key implementation finding not present in the simulator: a
+"ping and close the socket" attacker gets evicted within seconds because it
+misses geth's own liveness check, and the fix (`devp2p discv5 listen` in
+place of `devp2p discv5 ping`) is what actually makes the attack hold.
 
 ## What's here
 
@@ -34,7 +42,7 @@ provenance, not deleted — see [`archive/python-simulator/`](archive/python-sim
 | [`attacker/`](attacker/) | The bench-grinding attacker + honest background churn model |
 | [`experiment/`](experiment/) | The four experiments, producing CSV output |
 | [`cmd/benchgrind/`](cmd/benchgrind/) | CLI: runs all four experiments, writes results to `results/` |
-| `archive/python-simulator/` | Weeks 1–3 Python prototype (routing table + discovery), superseded |
+| [`aws-mainnet-experiment/`](aws-mainnet-experiment/) | The real attack: node-key grinding + live-share measurement against a real geth node on mainnet |
 
 ## Verified against the real geth source
 
@@ -69,7 +77,16 @@ exactly:
 | **Fraction sampling** | Accept each offer with probability P | Slightly — throttles both attacker and honest traffic equally |
 | **Deterministic (addrman-style)** | `slot = hash(subnet ‖ secret) % 10` — same subnet always lands in the same slot | No — repeated insertion of the same node is a no-op |
 
-## Run it
+## Requirements
+
+- Go ≥ 1.22 (no external dependencies for the simulator — `bench/`,
+  `attacker/`, `experiment/`, and `cmd/benchgrind/` use only the Go standard
+  library)
+- For the real-mainnet phase in `aws-mainnet-experiment/`: Go ≥ 1.22 plus
+  `github.com/ethereum/go-ethereum` as a module dependency, and a synced
+  go-ethereum node to attack (see that folder's README for setup)
+
+## Quick start
 
 ```bash
 go build ./...
@@ -77,7 +94,40 @@ go test ./...                    # 18 tests across bench/ and attacker/
 go run ./cmd/benchgrind           # runs all four experiments, writes results/*.csv
 ```
 
-All randomness is seeded (`SEED = 20240711`); every run is reproducible.
+That's it on default settings — four experiments run end to end in a few
+seconds and the numbers below are what you should see. All randomness is
+seeded (`SEED = 20240711`); every run is reproducible.
+
+## Advanced usage
+
+`cmd/benchgrind` takes one flag:
+
+```bash
+go run ./cmd/benchgrind -out myresults    # write CSVs to myresults/ instead of results/
+```
+
+The experiment parameters themselves (number of attacker subnets, insertion
+rate, honest churn rate, round counts, the 0.9 "reached" threshold in
+Experiment 3) are not exposed as CLI flags — they're set directly in
+`cmd/benchgrind/main.go` where each experiment is called, e.g.:
+
+```go
+// cmd/benchgrind/main.go, line 33
+e1 := experiment.Experiment1ReproduceGrind(5, 20, 200, seed)
+//                                          ^  ^   ^    ^
+//                               attacker subnets=5, insertion rate=20,
+//                               rounds=200, seed=20240711
+```
+
+To try a different attack configuration — e.g. fewer attacker subnets, or a
+faster/slower insertion rate — edit the arguments on the relevant
+`experiment.ExperimentN...` call and re-run `go run ./cmd/benchgrind`. Each
+experiment function's parameters are documented in
+[`experiment/experiment.go`](experiment/experiment.go).
+
+For the real-mainnet attack's parameters (target bucket, number of ground
+identities, measurement window), see
+[`aws-mainnet-experiment/README.md`](aws-mainnet-experiment/README.md#how-to-reproduce).
 
 ## Reproducible results (seed 20240711)
 
@@ -164,13 +214,22 @@ reproducibility under a fixed seed.
   full 256-bucket table, DNS-based peer discovery, or connection-slot
   occupation — those are separate attack surfaces (see Shi et al., WWW 2026)
   outside this project's scope.
-- Not yet validated against a real geth node; see Next Steps.
+- The real-mainnet phase (`aws-mainnet-experiment/`) confirms the attack
+  itself holds against a live go-ethereum node, but does not (yet) include
+  a working patched `table.go` running the deterministic-placement defense
+  over the wire — that comparison is currently simulator-only. Also, pure
+  identity-flooding tops out well below 90% in buckets with heavy honest
+  traffic, since slots there only open when an existing honest entry fails
+  its own liveness check; see `aws-mainnet-experiment/README.md` for why.
 
 ## Next steps
 
-- Validate the attack against a real geth node running in discovery-only
-  mode on Sepolia testnet.
 - Patch the deterministic-placement scheme into a modified `table.go`,
   rebuild geth, and confirm the defense holds against a real bench-grinding
-  attacker over the wire (requires Go ≥ 1.24 for current go-ethereum).
-- Plotting code for the four experiments' CSV output.
+  attacker over the wire against the same live-mainnet victim used in
+  `aws-mainnet-experiment/` (requires Go ≥ 1.24 for current go-ethereum).
+- Plotting code for the four simulator experiments' CSV output (the
+  real-mainnet phase already has its own plotting script, see
+  `aws-mainnet-experiment/`).
+- A "negative control" run confirming a high-traffic bucket resists pure
+  identity flooding even with the listen-mode fix applied.
