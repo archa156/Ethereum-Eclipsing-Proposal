@@ -6,10 +6,6 @@ import (
 	"benchgrind/bench"
 )
 
-// unopposedConfig models the PDF's simplest narrative: an attacker grinds
-// with no counteracting honest background traffic at all. This is the
-// clean "worst case" demonstration that the baseline scheme is fully
-// grindable.
 func unopposedConfig(scheme bench.Scheme) Config {
 	return Config{
 		AttackerSubnets: 5,
@@ -24,15 +20,6 @@ func unopposedConfig(scheme bench.Scheme) Config {
 	}
 }
 
-// sustainedConfig models a more realistic environment with ongoing honest
-// background traffic. Under sustained churn, absolute attacker share is
-// churn-rate-sensitive (discovered during development: even light honest
-// churn meaningfully dilutes a naively-grinding attacker, because the /24
-// subnet cap of 2 bottlenecks how fast the attacker can refill evicted
-// slots). The robust, churn-insensitive claim is therefore RELATIVE:
-// under IDENTICAL sustained conditions, baseline should still yield the
-// attacker a higher share than fraction sampling, which in turn should
-// yield a higher share than deterministic placement.
 func sustainedConfig(scheme bench.Scheme) Config {
 	return Config{
 		AttackerSubnets: 5,
@@ -56,9 +43,7 @@ func TestRunProducesOneResultPerRound(t *testing.T) {
 }
 
 func TestBaselineUnopposedGrindReachesNearTotalTakeover(t *testing.T) {
-	// With no honest counter-pressure at all, an attacker with 5 subnets
-	// should be able to fully dominate the bench under today's geth logic --
-	// this is the PDF's core claim, reproduced directly.
+
 	cfg := unopposedConfig(bench.SchemeBaseline)
 	results := Run(cfg)
 	final := results[len(results)-1]
@@ -69,9 +54,7 @@ func TestBaselineUnopposedGrindReachesNearTotalTakeover(t *testing.T) {
 }
 
 func TestDeterministicUnopposedGrindStaysBounded(t *testing.T) {
-	// Even with NO honest counter-pressure, deterministic placement should
-	// still cap the attacker's achievable share via hash-slot coverage --
-	// this is the headline difference from baseline.
+
 	cfg := unopposedConfig(bench.SchemeDeterministic)
 	results := Run(cfg)
 	final := results[len(results)-1]
@@ -92,16 +75,6 @@ func TestDeterministicOutperformsBaselineUnderSustainedChurn(t *testing.T) {
 	}
 }
 
-// avgFinalShare runs the same config across multiple seeds and averages the
-// final attacker bench share. A single seed is noisy -- fraction sampling
-// in particular throttles BOTH the attacker's insertions AND the honest
-// churn's counter-insertions uniformly (the bucket cannot distinguish
-// attacker from honest traffic at admission time), so its net effect on
-// SHARE, as opposed to raw insertion counts, is a small, noisy edge over
-// baseline rather than a large one -- averaging is needed to see it
-// reliably. Deterministic placement's advantage, by contrast, comes from a
-// structurally different mechanism (capping achievable hash-slot coverage)
-// and is large and robust even at a single seed.
 func avgFinalShare(scheme bench.Scheme, sampleP float64, seeds int) float64 {
 	total := 0.0
 	for s := 0; s < seeds; s++ {
@@ -124,9 +97,7 @@ func TestFractionSamplingIsIntermediateUnderSustainedChurn(t *testing.T) {
 		t.Fatalf("expected averaged ordering deterministic(%.3f) <= sampling(%.3f) <= baseline(%.3f) under identical churn",
 			dShare, sShare, bShare)
 	}
-	// The deterministic-vs-baseline gap should be substantially larger than
-	// the sampling-vs-baseline gap -- deterministic placement is a strong,
-	// structural mitigation; fraction sampling is a weak, noisy one.
+
 	detGap := bShare - dShare
 	samplingGap := bShare - sShare
 	if detGap <= samplingGap {
@@ -137,8 +108,7 @@ func TestFractionSamplingIsIntermediateUnderSustainedChurn(t *testing.T) {
 }
 
 func TestRoundsToReachBenchShareIsMonotonicWithInsertionRate(t *testing.T) {
-	// A faster-inserting attacker (baseline scheme, unopposed) should need
-	// FEWER rounds to reach a given bench share than a slower one.
+
 	slow := unopposedConfig(bench.SchemeBaseline)
 	slow.InsertionRate = 2
 	slow.Rounds = 2000

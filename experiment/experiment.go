@@ -1,13 +1,3 @@
-// Package experiment implements the four experiments defined in the
-// project methodology:
-//
-//  1. Reproduce the grind (SchemeBaseline only) -- confirm the attack works.
-//  2. Three-scheme comparison at fixed attack parameters -- the headline
-//     attacker-bench-share-over-time graph.
-//  3. Attacker effort curves -- rounds needed to reach a target bench share,
-//     swept across insertion rate, for each scheme.
-//  4. Honest-node overhead -- how often a legitimate honest node fails to
-//     get a bench slot under each scheme, with no attacker present at all.
 package experiment
 
 import (
@@ -17,17 +7,12 @@ import (
 	"benchgrind/bench"
 )
 
-// Experiment1Row is one round of the baseline-only grind reproduction.
 type Experiment1Row struct {
 	Round              int
 	AttackerBenchShare float64
 	AttackerEntryShare float64
 }
 
-// Experiment1ReproduceGrind runs the unopposed baseline grind and returns
-// its full trajectory, confirming the vulnerability described in the
-// project brief: with no honest counter-pressure, an attacker with
-// attackerSubnets distinct /24s eventually dominates the bench.
 func Experiment1ReproduceGrind(attackerSubnets, insertionRate, rounds int, seed int64) []Experiment1Row {
 	cfg := attacker.Config{
 		AttackerSubnets: attackerSubnets,
@@ -50,19 +35,13 @@ func Experiment1ReproduceGrind(attackerSubnets, insertionRate, rounds int, seed 
 	return rows
 }
 
-// Experiment2Row is one round across all three schemes, for the headline
-// comparison graph.
 type Experiment2Row struct {
-	Round                    int
-	BaselineBenchShare       float64
+	Round                      int
+	BaselineBenchShare         float64
 	FractionSamplingBenchShare float64
-	DeterministicBenchShare  float64
+	DeterministicBenchShare    float64
 }
 
-// Experiment2SchemeComparison runs all three schemes under IDENTICAL
-// sustained conditions (with honest background churn) and returns the
-// per-round trajectory of each. This is the single figure the project's
-// methodology calls for.
 func Experiment2SchemeComparison(attackerSubnets, insertionRate, honestChurnRate, rounds int,
 	sampleP float64, secret uint64, seed int64) []Experiment2Row {
 
@@ -95,22 +74,14 @@ func Experiment2SchemeComparison(attackerSubnets, insertionRate, honestChurnRate
 	return rows
 }
 
-// Experiment3Row is one (scheme, insertion rate) combination's cost to the
-// attacker: how many rounds of grinding are needed to reach the target
-// bench share, averaged over multiple seeds for stability. -1 means the
-// target was never reached within the round budget.
 type Experiment3Row struct {
 	Scheme        string
 	InsertionRate int
-	AvgRounds     float64 // -1 if the target was never reached in any seed
-	ReachedCount  int     // how many of the seeds reached the target at all
+	AvgRounds     float64
+	ReachedCount  int
 	Seeds         int
 }
 
-// Experiment3EffortCurves sweeps insertion rate for each scheme and
-// measures the average rounds needed to reach targetShare, averaged over
-// `seeds` random seeds per configuration. This is the attacker-effort cost
-// curve central to the project's contribution claim.
 func Experiment3EffortCurves(attackerSubnets int, insertionRates []int, targetShare float64,
 	roundBudget, seeds int, sampleP float64, secret uint64) []Experiment3Row {
 
@@ -132,13 +103,13 @@ func Experiment3EffortCurves(attackerSubnets int, insertionRates []int, targetSh
 				cfg := attacker.Config{
 					AttackerSubnets: attackerSubnets,
 					InsertionRate:   rate,
-					HonestChurnRate: 0, // unopposed, matching Experiment 1's clean cost measurement
+					HonestChurnRate: 0,
 					EntryDeathRate:  0.1,
 					Rounds:          roundBudget,
 					Scheme:          sc.scheme,
 					SampleP:         sampleP,
 					Secret:          secret,
-					Seed:            int64(s * 7919), // arbitrary distinct seeds
+					Seed:            int64(s * 7919),
 				}
 				r := attacker.RoundsToReachBenchShare(cfg, targetShare)
 				if r > 0 {
@@ -162,24 +133,13 @@ func Experiment3EffortCurves(attackerSubnets int, insertionRates []int, targetSh
 	return rows
 }
 
-// Experiment4Row reports, for one scheme, how often a purely honest node
-// (no attacker present at all) fails to obtain a bench slot when the bench
-// is already at capacity with other honest nodes -- the cost the defense
-// imposes on legitimate traffic.
 type Experiment4Row struct {
-	Scheme          string
-	Attempts        int
-	Succeeded       int
-	RejectionRate   float64 // fraction of honest attempts that failed to gain a slot
+	Scheme        string
+	Attempts      int
+	Succeeded     int
+	RejectionRate float64
 }
 
-// Experiment4HonestOverhead simulates a bucket receiving ONLY honest
-// replacement offers from honestSubnetPool distinct /24s, and measures
-// what fraction fail to be admitted once the bench is at capacity, under
-// each scheme. Under SchemeDeterministic this captures hash-slot
-// collisions between distinct honest subnets; under SchemeBaseline and
-// SchemeFractionSampling this captures ordinary eviction/rejection
-// dynamics with no attacker involved.
 func Experiment4HonestOverhead(honestSubnetPool, attempts int, sampleP float64, secret uint64, seed int64) []Experiment4Row {
 	schemes := []struct {
 		name   string
@@ -193,9 +153,7 @@ func Experiment4HonestOverhead(honestSubnetPool, attempts int, sampleP float64, 
 	var rows []Experiment4Row
 	for _, sc := range schemes {
 		b := bench.NewBucket(sc.scheme, sampleP, secret, seed)
-		// Fill the bench with an initial honest population first so
-		// subsequent attempts are genuinely contending for occupied
-		// capacity, not just filling empty slots for free.
+
 		for i := 0; i < bench.MaxReplacements; i++ {
 			b.AddReplacement(&bench.Node{ID: uint64(i), Subnet: honestLabel(i, honestSubnetPool)})
 		}
